@@ -691,11 +691,12 @@ const SUPABASE_URL = "https://gejmaxobebsamvfkkpoj.supabase.co";
 const SUPABASE_KEY = "sb_publishable_jqf5eYy0Coka5d0-E86JJQ_bCiQDyvD";
 const SYNC_KEY = "sasiquest_sync_pending";
 
-/* Transforme state.completed ({ c01_1: {best}, ... }) en tableau { module, niveau, score }. */
+/* Transforme state.completed ({ anatomie_1: {best}, ... }) en tableau { module, niveau, score }.
+   L'id de compétence est libre (anatomie, m1, c01…) ; on isole le niveau 1-3 en suffixe. */
 function buildProgressArray() {
   const out = [];
   for (const key in state.completed) {
-    const m = key.match(/^(c\d+)_([123])$/);
+    const m = key.match(/^(.+)_([123])$/);
     if (!m) continue;
     const v = state.completed[key] || {};
     out.push({ module: m[1], niveau: parseInt(m[2], 10), score: v.best != null ? v.best : (v.score || 0) });

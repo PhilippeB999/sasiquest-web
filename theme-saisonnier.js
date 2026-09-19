@@ -211,6 +211,7 @@
   ];
 
   var ATTR = "data-saison";               // posé sur <html>
+  var ATTR_FOND = "data-saison-fond";     // "clair" | "sombre", mesuré au démarrage
   var CLE_APERCU = "quest_apercu_saison"; // sessionStorage : aperçu forcé
   var CLE_TIRAGE = "quest_tirage_saison"; // sessionStorage : résultat du tirage
   var ID_STYLE = "theme-saisonnier-css";
@@ -430,7 +431,8 @@
       "}";
   }
 
-  var R = ":root[" + ATTR + "] ";   // raccourci de lecture
+  var R = ":root[" + ATTR + "] ";                      // thème actif
+  var CLAIR = ":root[" + ATTR + "][" + ATTR_FOND + '="clair"] '; // … sur une app à fond clair
 
   var CSS_STATIQUE = [
     /* --- Éléments créés par le module. Ils vivent dans <body>, hors
@@ -463,8 +465,19 @@
       "linear-gradient(180deg,rgba(var(--saison-1-rgb),.34) 0,rgba(var(--saison-1-rgb),.12) 260px," +
       "rgba(var(--saison-2-rgb),.12) 62%,rgba(var(--saison-2-rgb),.26) 100%);}",
 
-    /* 2. Guirlande d'emoji en tête de chaque écran. */
-    R + ".content::before," + R + ".onboarding::before{content:var(--saison-guirlande);display:block;" +
+    /* Apps hors moteur Quest (pas de #app) : mêmes voiles sur leur
+       conteneur principal. Si la classe n'existe pas, rien ne se passe. */
+    R + ".wrap{padding-top:calc(env(safe-area-inset-top,0px) + 40px);background-image:" +
+      "linear-gradient(180deg,rgba(var(--saison-1-rgb),.28) 0,rgba(var(--saison-1-rgb),.1) 260px," +
+      "rgba(var(--saison-2-rgb),.1) 62%,rgba(var(--saison-2-rgb),.22) 100%);}",
+
+    /* 2. Guirlande d'emoji en tête de chaque écran. `.screen` et `.wrap`
+          couvrent les apps qui n'ont ni .content ni .onboarding. */
+    /* Pas de guirlande sur .wrap : dans une app où le conteneur commence
+       tout en haut de la page (AlgèbreQuest), elle se colle au cartouche
+       et devient illisible. Ces apps gardent ruban + cartouche + voile. */
+    R + ".content::before," + R + ".onboarding::before," + R + ".screen::before{" +
+      "content:var(--saison-guirlande);display:block;" +
       "text-align:center;font-size:17px;line-height:1.1;word-spacing:11px;padding:4px 0 10px;" +
       "filter:drop-shadow(0 2px 7px rgba(var(--saison-1-rgb),.6));}",
 
@@ -496,11 +509,43 @@
 
     /* 6. Cartes de compétence : fond teinté (le vert « réussi » et les
           pastilles de palier, eux, ne bougent pas). */
-    R + ".quest-node{background-image:linear-gradient(135deg,rgba(var(--saison-1-rgb),.2),rgba(var(--saison-2-rgb),.1));}"
+    R + ".quest-node{background-image:linear-gradient(135deg,rgba(var(--saison-1-rgb),.2),rgba(var(--saison-2-rgb),.1));}",
 
     /* Volontairement PAS touché : les boutons d'action et CTA, la barre de
        progression, les pastilles de palier, l'onglet actif et les couleurs
        réussite/erreur du quiz. L'amplification reste décorative. */
+
+    /* ------------------------------------------------------------
+       7. FOND CLAIR. Tout ce qui précède est calibré pour une app à
+          fond sombre (le lignage ChantierQuest/SASI). Sur une app à
+          fond clair, les mêmes opacités écrasent la page et le texte
+          blanc des onglets devient illisible : on rejoue ici les
+          seules valeurs qui doivent changer. Le module pose lui-même
+          data-saison-fond="clair" en mesurant le fond réel de la page
+          au démarrage — rien à configurer par app.
+          Les couleurs restent les mêmes (vives, jamais ternes) : on
+          ne baisse que la quantité de voile.
+       ------------------------------------------------------------ */
+    CLAIR + "body{background-image:linear-gradient(180deg,rgba(var(--saison-1-rgb),.1),rgba(var(--saison-2-rgb),.07));}",
+    CLAIR + "#app," + CLAIR + ".wrap{background-image:" +
+      "linear-gradient(180deg,rgba(var(--saison-1-rgb),.16) 0,rgba(var(--saison-1-rgb),.05) 260px," +
+      "rgba(var(--saison-2-rgb),.05) 62%,rgba(var(--saison-2-rgb),.12) 100%);}",
+    /* Texte des onglets : on laisse l'app décider, et le voile est plus léger. */
+    CLAIR + ".tabs button:not(.active){background-color:rgba(var(--saison-1-rgb),.16);color:inherit;}",
+    CLAIR + ".tabs button:not(.active):nth-child(even){background-color:rgba(var(--saison-2-rgb),.16);}",
+    /* Cartes : voile discret, halo resserré (sur fond clair, un gros halo bave). */
+    CLAIR + ".vehicle-showcase{background-image:linear-gradient(160deg,rgba(var(--saison-1-rgb),.14),rgba(var(--saison-2-rgb),.07));" +
+      "box-shadow:0 0 0 1px rgba(var(--saison-3-rgb),.5),0 6px 18px rgba(var(--saison-1-rgb),.22);}",
+    CLAIR + ".totem-card{background-image:linear-gradient(160deg,rgba(var(--saison-1-rgb),.13),rgba(var(--saison-2-rgb),.07));" +
+      "box-shadow:0 6px 16px rgba(var(--saison-1-rgb),.2);}",
+    CLAIR + ".quest-node{background-image:linear-gradient(135deg,rgba(var(--saison-1-rgb),.1),rgba(var(--saison-2-rgb),.05));}",
+    CLAIR + ".avatar-chip{box-shadow:0 0 0 3px var(--saison-1),0 0 10px 1px rgba(var(--saison-1-rgb),.35);}",
+    /* Filigranes : ombre portée claire, sinon les emoji se salissent. */
+    CLAIR + ".vehicle-showcase::after," + CLAIR + ".totem-card::after," +
+      CLAIR + ".vehicle-showcase::before," + CLAIR + ".totem-card::before{" +
+      "filter:drop-shadow(0 2px 5px rgba(0,0,0,.18));}",
+    CLAIR + ".content::before," + CLAIR + ".onboarding::before," + CLAIR + ".screen::before{" +
+      "filter:drop-shadow(0 2px 5px rgba(var(--saison-1-rgb),.35));}"
   ].join("\n");
 
   function injecterStyle() {
@@ -561,10 +606,32 @@
     majCartouche();
   }
 
+  /* Mesure le fond réel de la page pour savoir dans quel registre jouer.
+     Les apps Quest du lignage ChantierQuest sont sombres ; Career Explorer
+     et AlgèbreQuest sont claires. En cas de doute (fond transparent, image,
+     navigateur exotique) on retombe sur "sombre", le réglage d'origine. */
+  function fondDeLaPage() {
+    try {
+      var cibles = [document.body, document.documentElement];
+      for (var i = 0; i < cibles.length; i++) {
+        if (!cibles[i]) continue;
+        var c = window.getComputedStyle(cibles[i]).backgroundColor;
+        var m = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?/.exec(c || "");
+        if (!m) continue;
+        if (m[4] !== undefined && parseFloat(m[4]) === 0) continue; // transparent : on regarde plus haut
+        var lum = 0.2126 * +m[1] + 0.7152 * +m[2] + 0.0722 * +m[3];
+        return lum > 140 ? "clair" : "sombre";
+      }
+    } catch (e) { /* on garde le réglage sombre */ }
+    return "sombre";
+  }
+
   function appliquer(theme) {
     var th = typeof theme === "string" ? parId(theme) : theme;
     themeCourant = th || null;
     injecterStyle();
+    if (themeCourant) document.documentElement.setAttribute(ATTR_FOND, fondDeLaPage());
+    else document.documentElement.removeAttribute(ATTR_FOND);
     if (!themeCourant) {
       document.documentElement.removeAttribute(ATTR);
       decor(false);

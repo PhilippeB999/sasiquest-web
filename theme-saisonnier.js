@@ -12,12 +12,15 @@
    Quest ; il suffit d'ajouter le <script> dans index.html et le
    fichier dans la liste ASSETS du service worker.
 
+   L'app porte une couleur TOUTE l'année : les 4 saisons couvrent le
+   calendrier au complet, et une fête (Halloween, Noël, Pâques) prend
+   le dessus sur la saison pendant sa fenêtre.
+
    APERÇU / DÉMO (sans attendre la bonne date) :
-     index.html?theme=halloween
-     index.html?theme=noel
-     index.html?theme=paques
-     index.html?theme=aucun     → force « aucun thème »
-     index.html?theme=auto      → efface l'aperçu, retour au calendrier
+     Fêtes    : ?theme=halloween | ?theme=noel | ?theme=paques
+     Saisons  : ?theme=automne | ?theme=hiver | ?theme=printemps | ?theme=ete
+     Debug    : ?theme=aucun    → force « aucun thème » (app d'origine)
+                ?theme=auto     → efface l'aperçu, retour au calendrier
    Le choix d'aperçu est retenu pour l'onglet courant (sessionStorage),
    donc la navigation interne de l'app le conserve.
 
@@ -34,16 +37,24 @@
      1) CONFIGURATION — ajouter un thème = ajouter une entrée ici.
         Rien d'autre à modifier dans le fichier.
 
-        periode : { debut:"MM-JJ", fin:"MM-JJ" }   (bornes incluses,
+        rang     : 1 = fête, 2 = saison. Quand deux thèmes tombent le
+                   même jour, le plus petit rang gagne. C'est ce qui
+                   fait qu'Halloween l'emporte sur l'automne, et Noël
+                   sur l'hiver, sans que l'ordre du tableau compte.
+        periode  : { debut:"MM-JJ", fin:"MM-JJ" }   (bornes incluses,
                    peut chevaucher le 31 décembre : debut > fin)
               ou  { calcul:"paques", avant:N, apres:N } (fenêtre de
                    N jours autour de la date calculée de Pâques)
         couleurs : [accent1, accent2, accent3] — vives, jamais
-                   délavées, jamais sombres.
+                   délavées, jamais sombres. La 1re teinte les
+                   bordures : éviter d'y mettre un vert franc ou un
+                   rouge franc, qui se liraient comme « réussi » /
+                   « erreur » dans l'app.
      ------------------------------------------------------------ */
   var THEMES = [
     {
       id: "paques",
+      rang: 1,               // fête : prioritaire sur la saison
       nomFr: "Pâques",
       nomEn: "Easter",
       emoji: "🌷",            // icône du cartouche (de chaque côté du nom)
@@ -58,6 +69,7 @@
     },
     {
       id: "halloween",
+      rang: 1,               // fête : prioritaire sur la saison
       nomFr: "Halloween",
       nomEn: "Halloween",
       emoji: "🎃",
@@ -70,6 +82,7 @@
     },
     {
       id: "noel",
+      rang: 1,               // fête : prioritaire sur la saison
       nomFr: "Temps des Fêtes",
       nomEn: "Holidays",
       emoji: "🎄",
@@ -82,8 +95,72 @@
       fondBadge: "#d42a1c",
       texteBadge: "#ffffff",
       periode: { debut: "12-01", fin: "01-06" }
+    },
+
+    /* --- Les 4 saisons (rang 2). Elles se relaient pour couvrir le
+           calendrier au complet : l'app a toujours une couleur, même
+           hors période de fête. Bornes astronomiques arrondies. --- */
+    {
+      id: "automne",
+      rang: 2,
+      nomFr: "Automne",
+      nomEn: "Fall",
+      emoji: "🍁",
+      deco: "🍂",
+      deco2: "🌰",
+      couleurs: ["#ff7a00", "#e0431f", "#ffc400"], // orange brûlé, rouge érable, or
+      fondBadge: "#e0431f",
+      texteBadge: "#ffffff",
+      periode: { debut: "09-22", fin: "12-20" }   // Halloween prend le dessus mi-oct → 1er nov
+    },
+    {
+      id: "hiver",
+      rang: 2,
+      nomFr: "Hiver",
+      nomEn: "Winter",
+      emoji: "⛄",
+      // Pas de flocon ici : ❄️ est déjà le filigrane de Noël, on garde
+      // les deux fêtes/saisons visuellement distinctes.
+      deco: "🧊",
+      deco2: "🧣",
+      couleurs: ["#00b8ff", "#6c8cff", "#e8f6ff"], // bleu glacier, bleu givre, blanc argenté
+      fondBadge: "#00b8ff",
+      texteBadge: "#04222e",
+      periode: { debut: "12-21", fin: "03-19" }   // Noël prend le dessus jusqu'au 6 janvier
+    },
+    {
+      id: "printemps",
+      rang: 2,
+      nomFr: "Printemps",
+      nomEn: "Spring",
+      emoji: "🌱",
+      deco: "🌼",
+      deco2: "🐝",
+      // Rose vif en tête plutôt que le vert : le vert franc est la
+      // couleur « réussi » de l'app. Il reste dans le dégradé.
+      couleurs: ["#ff3d8b", "#00d45e", "#ffd400"], // rose vif, vert pousse, jaune
+      fondBadge: "#ff3d8b",
+      texteBadge: "#ffffff",
+      periode: { debut: "03-20", fin: "06-20" }   // Pâques prend le dessus sa semaine
+    },
+    {
+      id: "ete",
+      rang: 2,
+      nomFr: "Été",
+      nomEn: "Summer",
+      emoji: "☀️",
+      deco: "🌊",
+      deco2: "🍉",
+      // Turquoise puis bleu vif : ce sont les deux teintes qui colorent le
+      // fond (mer et ciel). Le jaune soleil reste en 3e, en accents (ruban,
+      // liseré du cartouche) — en 2e il virait au kaki sur fond sombre, et
+      // il entrerait en concurrence avec le jaune de marque de l'app.
+      couleurs: ["#00d1c1", "#00a3ff", "#ffcc00"], // turquoise, bleu vif, soleil
+      fondBadge: "#00d1c1",
+      texteBadge: "#04302c",
+      periode: { debut: "06-21", fin: "09-21" }
     }
-    /* Exemples à ajouter plus tard, même format :
+    /* Exemples à ajouter plus tard, même format (rang 1 = fête) :
        { id:"st-valentin", nomFr:"Saint-Valentin", nomEn:"Valentine's",
          emoji:"💖", deco:"💌", deco2:"🌹", couleurs:["#ff2d6f","#ff85a1","#ffd400"],
          fondBadge:"#ff2d6f", texteBadge:"#fff",
@@ -167,13 +244,20 @@
     return false;
   }
 
-  /* Le premier thème de la liste qui correspond l'emporte. */
+  function rangDe(th) { return th && th.rang != null ? th.rang : 9; }
+
+  /* Parmi tous les thèmes actifs ce jour-là, on garde le plus petit
+     rang : une FÊTE (rang 1) l'emporte toujours sur la SAISON (rang 2).
+     Le 25 octobre → Halloween, pas automne. Le 24 décembre → Noël, pas
+     hiver. À rang égal, le premier de la liste gagne. */
   function themeDuJour(d) {
     var jour = d || new Date();
+    var meilleur = null;
     for (var i = 0; i < THEMES.length; i++) {
-      if (estActif(THEMES[i], jour)) return THEMES[i];
+      if (!estActif(THEMES[i], jour)) continue;
+      if (!meilleur || rangDe(THEMES[i]) < rangDe(meilleur)) meilleur = THEMES[i];
     }
-    return null;
+    return meilleur;
   }
 
   function parId(id) {

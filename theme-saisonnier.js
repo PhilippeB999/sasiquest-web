@@ -12,26 +12,56 @@
    Quest ; il suffit d'ajouter le <script> dans index.html et le
    fichier dans la liste ASSETS du service worker.
 
-   L'app porte une couleur TOUTE l'année : les 4 saisons couvrent le
-   calendrier au complet, et une fête (Halloween, Noël, Pâques) prend
-   le dessus sur la saison pendant sa fenêtre.
+   C'EST UNE SURPRISE, PAS UN HABILLAGE PERMANENT. Deux filtres se
+   cumulent pour que l'état normal de l'app reste l'état majoritaire :
+     1. la date doit tomber dans une fenêtre (fête, ou les quelques
+        jours d'un changement de saison) ;
+     2. même dans une fenêtre, un TIRAGE AU SORT décide si le thème
+        s'affiche pour cette visite (voir CHANCE_AFFICHAGE).
+   Le tirage est figé pour l'onglet courant : le thème ne clignote pas
+   d'un écran à l'autre pendant une même visite, mais l'élève qui
+   rouvre l'app plus tard peut tomber sur un autre tirage.
 
    APERÇU / DÉMO (sans attendre la bonne date) :
      Fêtes    : ?theme=halloween | ?theme=noel | ?theme=paques
      Saisons  : ?theme=automne | ?theme=hiver | ?theme=printemps | ?theme=ete
      Debug    : ?theme=aucun    → force « aucun thème » (app d'origine)
                 ?theme=auto     → efface l'aperçu, retour au calendrier
-   Le choix d'aperçu est retenu pour l'onglet courant (sessionStorage),
-   donc la navigation interne de l'app le conserve.
+   L'aperçu forcé est DÉTERMINISTE : il ignore le tirage au sort, on
+   voit toujours le thème demandé. Le choix est retenu pour l'onglet
+   courant (sessionStorage), donc la navigation interne le conserve.
 
    API console : window.ThemeSaisonnier
-     .themeDuJour()          → le thème actif selon la date
+     .themeDuJour()          → la fenêtre active selon la date (sans tirage)
+     .themeDeLaVisite()      → ce qui s'affiche vraiment (fenêtre + tirage)
+     .reglages               → { dureeSaisonJours, chanceAffichage }
      .dateDePaques(2027)     → Date (computus de Gauss/Meeus)
      .appliquer("noel")      → applique à chaud
      .retirer()              → enlève tout
    ============================================================ */
 (function () {
   "use strict";
+
+  /* ============================================================
+     ★★★  LES DEUX RÉGLAGES À RETOUCHER  ★★★
+     Ce sont les deux valeurs qui dosent la « surprise ». Elles se
+     changent ici, seules, sans toucher à rien d'autre.
+     ============================================================ */
+
+  /* Durée, EN JOURS, de la fenêtre de surprise au changement de saison.
+     La fenêtre est centrée sur la date pivot du thème (l'équinoxe ou le
+     solstice) : 5 → du pivot -2 jours au pivot +2 jours.
+     Monter à 9 ou 11 pour des saisons plus présentes, descendre à 3
+     pour les rendre plus rares. (Une saison peut surcharger cette
+     valeur avec « jours: N » dans sa periode.) */
+  var DUREE_SAISON_JOURS = 5;
+
+  /* Probabilité qu'un thème ACTIF s'affiche réellement pour une visite.
+     0.45 = environ 45 % des visites pendant une fenêtre ; les autres
+     fois, l'app reste dans son état normal. 1 = toujours (comme avant),
+     0 = jamais. Le tirage est figé par onglet, et il ne s'applique
+     JAMAIS à l'aperçu forcé ?theme=… (démos toujours fiables). */
+  var CHANCE_AFFICHAGE = 0.45;
 
   /* ------------------------------------------------------------
      1) CONFIGURATION — ajouter un thème = ajouter une entrée ici.
@@ -43,6 +73,8 @@
                    sur l'hiver, sans que l'ordre du tableau compte.
         periode  : { debut:"MM-JJ", fin:"MM-JJ" }   (bornes incluses,
                    peut chevaucher le 31 décembre : debut > fin)
+              ou  { pivot:"MM-JJ", jours:N }  fenêtre de N jours centrée
+                   sur la date pivot (N par défaut = DUREE_SAISON_JOURS)
               ou  { calcul:"paques", avant:N, apres:N } (fenêtre de
                    N jours autour de la date calculée de Pâques)
         couleurs : [accent1, accent2, accent3] — vives, jamais
@@ -111,7 +143,7 @@
       couleurs: ["#ff7a00", "#e0431f", "#ffc400"], // orange brûlé, rouge érable, or
       fondBadge: "#e0431f",
       texteBadge: "#ffffff",
-      periode: { debut: "09-22", fin: "12-20" }   // Halloween prend le dessus mi-oct → 1er nov
+      periode: { pivot: "09-22" }   // équinoxe d'automne
     },
     {
       id: "hiver",
@@ -126,7 +158,12 @@
       couleurs: ["#00b8ff", "#6c8cff", "#e8f6ff"], // bleu glacier, bleu givre, blanc argenté
       fondBadge: "#00b8ff",
       texteBadge: "#04222e",
-      periode: { debut: "12-21", fin: "03-19" }   // Noël prend le dessus jusqu'au 6 janvier
+      // ⚠️ Solstice d'hiver = 21 déc, MAIS la fenêtre de Noël court du
+      // 1er déc au 6 janv et, étant une fête (rang 1), elle gagne
+      // toujours : telle quelle, la surprise « Hiver » ne sortira
+      // jamais. Si Philippe la veut visible, déplacer ce seul pivot
+      // vers le cœur de l'hiver québécois, p. ex. pivot: "01-20".
+      periode: { pivot: "12-21" }   // solstice d'hiver
     },
     {
       id: "printemps",
@@ -141,7 +178,7 @@
       couleurs: ["#ff3d8b", "#00d45e", "#ffd400"], // rose vif, vert pousse, jaune
       fondBadge: "#ff3d8b",
       texteBadge: "#ffffff",
-      periode: { debut: "03-20", fin: "06-20" }   // Pâques prend le dessus sa semaine
+      periode: { pivot: "03-20" }   // équinoxe du printemps (Pâques gagne si les deux tombent ensemble)
     },
     {
       id: "ete",
@@ -158,7 +195,7 @@
       couleurs: ["#00d1c1", "#00a3ff", "#ffcc00"], // turquoise, bleu vif, soleil
       fondBadge: "#00d1c1",
       texteBadge: "#04302c",
-      periode: { debut: "06-21", fin: "09-21" }
+      periode: { pivot: "06-21" }   // solstice d'été
     }
     /* Exemples à ajouter plus tard, même format (rang 1 = fête) :
        { id:"st-valentin", nomFr:"Saint-Valentin", nomEn:"Valentine's",
@@ -176,8 +213,9 @@
     */
   ];
 
-  var ATTR = "data-saison";              // posé sur <html>
-  var CLE_APERCU = "quest_apercu_saison"; // sessionStorage
+  var ATTR = "data-saison";               // posé sur <html>
+  var CLE_APERCU = "quest_apercu_saison"; // sessionStorage : aperçu forcé
+  var CLE_TIRAGE = "quest_tirage_saison"; // sessionStorage : résultat du tirage
   var ID_STYLE = "theme-saisonnier-css";
 
   /* ------------------------------------------------------------
@@ -237,9 +275,32 @@
     return false;
   }
 
+  /* Fenêtre courte centrée sur une date pivot (équinoxe / solstice).
+     Avec DUREE_SAISON_JOURS = 5 et pivot 09-22 : du 20 au 24 septembre.
+     Un nombre pair de jours met le jour de plus après le pivot. */
+  function dansPeriodePivot(d, periode) {
+    var n = periode.jours != null ? periode.jours : DUREE_SAISON_JOURS;
+    if (!(n > 0)) return false;
+    var avant = Math.floor((n - 1) / 2);
+    var apres = n - 1 - avant;
+    var mj = mmjjDeTexte(periode.pivot);
+    var mois = Math.floor(mj / 100), jourDuMois = mj % 100;
+    var jour = jourSeul(d).getTime();
+    // Années voisines testées aussi : une fenêtre posée sur le 1er janvier
+    // ou le 31 décembre déborderait sur l'année d'à côté.
+    var annees = [d.getFullYear() - 1, d.getFullYear(), d.getFullYear() + 1];
+    for (var i = 0; i < annees.length; i++) {
+      var debut = new Date(annees[i], mois - 1, jourDuMois - avant).getTime();
+      var fin = new Date(annees[i], mois - 1, jourDuMois + apres).getTime();
+      if (jour >= debut && jour <= fin) return true;
+    }
+    return false;
+  }
+
   function estActif(theme, d) {
     var p = theme.periode || {};
     if (p.calcul === "paques") return dansPeriodePaques(d, p);
+    if (p.pivot) return dansPeriodePivot(d, p);
     if (p.debut && p.fin) return dansPeriodeFixe(d, p);
     return false;
   }
@@ -288,12 +349,50 @@
   /* Retourne : un thème, "aucun" (forcé sans thème), ou null (= calendrier). */
   function apercu() {
     var v = lireParametre();
-    if (v === "auto" || v === "calendrier") { memoire(null); return null; }
+    if (v === "auto" || v === "calendrier") { memoire(null); memoireTirage(null); return null; }
     if (v) memoire(v);
     else v = memoire();
     if (!v) return null;
     if (v === "aucun" || v === "none" || v === "off" || v === "rien") return "aucun";
     return parId(v) || null;
+  }
+
+  /* ------------------------------------------------------------
+     4 bis) LE TIRAGE AU SORT — le 2e filtre de la surprise.
+        Une fenêtre active ne suffit pas : encore faut-il gagner le
+        tirage. Le résultat est figé pour l'onglet courant, sinon le
+        thème apparaîtrait et disparaîtrait d'un écran à l'autre.
+        Ce tirage ne concerne QUE le comportement naturel — l'aperçu
+        forcé ?theme=… ne passe jamais par ici.
+     ------------------------------------------------------------ */
+  function memoireTirage(valeur) {
+    try {
+      if (valeur === undefined) return sessionStorage.getItem(CLE_TIRAGE);
+      if (valeur === null) sessionStorage.removeItem(CLE_TIRAGE);
+      else sessionStorage.setItem(CLE_TIRAGE, valeur);
+    } catch (e) { /* mode privé : on retire au sort à chaque chargement */ }
+    return valeur;
+  }
+
+  function tirageDeLaSession(th) {
+    var brut = memoireTirage();
+    if (brut) {
+      // Format « id:0|1 ». Si la fenêtre active a changé depuis (minuit
+      // passé, onglet resté ouvert), on refait un tirage propre.
+      var bout = brut.split(":");
+      if (bout[0] === th.id) return bout[1] === "1";
+    }
+    var montre = Math.random() < CHANCE_AFFICHAGE;
+    memoireTirage(th.id + ":" + (montre ? "1" : "0"));
+    return montre;
+  }
+
+  /* Ce qui s'affiche vraiment pour cette visite : la fenêtre du jour,
+     puis le tirage. Retourne null la plupart du temps — c'est voulu. */
+  function themeDeLaVisite(d) {
+    var th = themeDuJour(d);
+    if (!th) return null;
+    return tirageDeLaSession(th) ? th : null;
   }
 
   /* ------------------------------------------------------------
@@ -484,8 +583,15 @@
   function demarrer() {
     try {
       var forcee = apercu();               // thème | "aucun" | null
-      if (forcee === "aucun") { appliquer(null); return; }
-      appliquer(forcee || themeDuJour());
+      if (forcee === "aucun") {
+        appliquer(null);                   // debug : app d'origine, à l'identique
+        return;
+      }
+      if (forcee) {
+        appliquer(forcee);                 // aperçu/démo : déterministe, aucun tirage
+      } else {
+        appliquer(themeDeLaVisite());      // naturel : fenêtre du jour PUIS tirage
+      }
       // La langue de l'app peut changer sans rechargement : on suit
       // l'attribut lang de <html> pour retraduire le cartouche.
       if (window.MutationObserver) {
@@ -501,11 +607,14 @@
 
   window.ThemeSaisonnier = {
     themes: THEMES,
+    reglages: { dureeSaisonJours: DUREE_SAISON_JOURS, chanceAffichage: CHANCE_AFFICHAGE },
     dateDePaques: dateDePaques,
-    themeDuJour: themeDuJour,
+    themeDuJour: themeDuJour,        // la fenêtre active (sans tirage)
+    themeDeLaVisite: themeDeLaVisite, // ce qui s'affiche vraiment (avec tirage)
     appliquer: appliquer,
     retirer: retirer,
-    apercu: apercu
+    apercu: apercu,
+    oublierTirage: function () { memoireTirage(null); } // pour retirer au sort sans rouvrir d'onglet
   };
 
   if (document.readyState === "loading") {

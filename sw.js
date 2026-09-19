@@ -2,12 +2,13 @@
    Au premier chargement, il met en cache tous les fichiers de l'app.
    Ensuite, l'app se lance sans réseau, exactement comme une app native. */
 
-const CACHE = "sasiquest-v12";
+const CACHE = "sasiquest-v13";
 const ASSETS = [
   "index.html",
   "app.js",
   "data.js",
   "style.css",
+  "theme-saisonnier.js",
   "manifest.json",
   "icons/icon-192.png",
   "icons/icon-512.png",

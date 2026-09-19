@@ -158,12 +158,9 @@
       couleurs: ["#00b8ff", "#6c8cff", "#e8f6ff"], // bleu glacier, bleu givre, blanc argenté
       fondBadge: "#00b8ff",
       texteBadge: "#04222e",
-      // ⚠️ Solstice d'hiver = 21 déc, MAIS la fenêtre de Noël court du
-      // 1er déc au 6 janv et, étant une fête (rang 1), elle gagne
-      // toujours : telle quelle, la surprise « Hiver » ne sortira
-      // jamais. Si Philippe la veut visible, déplacer ce seul pivot
-      // vers le cœur de l'hiver québécois, p. ex. pivot: "01-20".
-      periode: { pivot: "12-21" }   // solstice d'hiver
+      // Décalé du solstice (21 déc, absorbé par la fenêtre de Noël) vers
+      // le cœur de l'hiver québécois, pour que la surprise sorte vraiment.
+      periode: { pivot: "01-20" }   // cœur de l'hiver québécois
     },
     {
       id: "printemps",

@@ -134,6 +134,27 @@ function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+/* Échappe le HTML pour toute valeur affichée qui ne vient pas d'une liste
+   fixe codée en dur (nom/logo/programme de CFP, code de classe) — ces
+   valeurs transitent par Supabase (info_classe) ou l'URL (?code=) et ne
+   doivent jamais être insérées telles quelles dans un template innerHTML. */
+function escapeHtml(str) {
+  return String(str == null ? "" : str).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+/* Le logo de CFP doit en plus être une vraie URL http(s) — sinon on
+   l'ignore plutôt que de risquer un schéma javascript:/data: dans un src. */
+function safeImageUrl(url) {
+  try {
+    const u = new URL(url, location.href);
+    return (u.protocol === "https:" || u.protocol === "http:") ? u.href : "";
+  } catch (e) {
+    return "";
+  }
+}
+
 function t(key) {
   return UI_TEXT[state.lang][key];
 }
@@ -534,7 +555,7 @@ function header(activeTab) {
       <div>
         <div class="brand-name">${state.totem ? state.totem.emoji + " " + totemLabel(state.totem, state.lang) : ""}</div>
         <div class="brand-level">${state.shared && state.classCode
-          ? `👥 ${state.cfpNom || state.classCode}`
+          ? `👥 ${escapeHtml(state.cfpNom || state.classCode)}`
           : `${lvlName} · ${state.xp} ${t("xp")}`}</div>
       </div>
     </div>
@@ -556,16 +577,24 @@ function progressPct() {
   return Math.round((state.badges.length / COMPETENCIES.length) * 100);
 }
 
-/* ------------------ Essai gratuit de 7 jours + code d'accès (local) ------------------ */
+/* ------------------ Essai gratuit de 7 jours + code d'accès (serveur) ------------------
+   Les codes valides ne sont JAMAIS envoyés au navigateur : ils vivent dans une
+   table Supabase protégée par RLS (voir supabase_licences.sql), et l'app ne
+   peut qu'appeler la fonction verifier_licence(code, app), qui renvoie vrai/faux
+   pour LE code soumis — jamais la liste complète. Une fois qu'un code a été
+   accepté une fois (state.accessCode non vide), l'appareil reste licencié
+   hors ligne sans revalider à chaque lancement (comme le code de classe). */
 
 const TRIAL_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // essai gratuit de 7 jours
-// Liste des codes de licence valides. Le premier est le code « maître » de l'app ;
-// les suivants sont les codes clients (centres ayant acheté une licence).
-const ACCESS_CODES = ["SASI-2026-JMQR", "ENVOL-2026-B2PG"]; // client : CFP L'Envol
-const ACCESS_CODE = ACCESS_CODES[0]; // code maître (rétrocompatibilité)
+/* Identifiant de CETTE app côté Supabase. Il cadre la portée du code : la
+   fonction verifier_licence ne dit oui que si le code couvre cette app-ci
+   (colonne `apps` de la table licences ; NULL = forfait suite complète).
+   Sans ce paramètre, toutes les apps partageant le même projet Supabase
+   seraient déverrouillées par n'importe quel code valide d'une autre app. */
+const APP_ID = "sasi";
 
 function isAccessGranted() {
-  if (state.accessCode && ACCESS_CODES.includes(state.accessCode.trim().toUpperCase())) return true;
+  if (state.accessCode) return true;
   if (!state.firstLaunchDate) return true; // sécurité : ne jamais bloquer si la date est absente
   return (Date.now() - state.firstLaunchDate) < TRIAL_DURATION_MS;
 }
@@ -574,13 +603,42 @@ function isAccessGranted() {
    Modèle d'affaires : sans licence (essai, démo, URL nue), l'usager accède
    aux FREE_COMPETENCIES premières compétences (tous les paliers). Les
    compétences suivantes (ordre > FREE_COMPETENCIES) restent VISIBLES mais
-   verrouillées « premium ». La licence (accessCode === ACCESS_CODE) débloque
+   verrouillées « premium ». La licence (code validé par Supabase) débloque
    tout. Ce verrou est INDÉPENDANT de l'essai de 7 jours : il ne dépend que
    de isLicensed(). */
 const FREE_COMPETENCIES = 3; // nombre de compétences gratuites sans licence (ajustable)
 
 function isLicensed() {
-  return !!(state.accessCode && ACCESS_CODES.includes(state.accessCode.trim().toUpperCase()));
+  return !!state.accessCode;
+}
+
+/* Interroge la fonction security-definer verifier_licence pour un code saisi.
+   Retourne { ok:true } si valide POUR CETTE APP, ou { ok:false, reason } où
+   reason ∈ "invalid" (le serveur a répondu : code inconnu, inactif, ou valide
+   pour une autre app seulement), "offline" (pas de réseau ou erreur serveur —
+   on ne peut pas confirmer, donc on REFUSE plutôt que d'accepter à l'aveugle :
+   une licence donne accès à du contenu payant), ou "not-configured" (la
+   fonction n'existe pas encore côté Supabase — signal clair pour Philippe
+   s'il n'a pas encore exécuté supabase_licences.sql). */
+async function verifyLicenseCode(code) {
+  if (!navigator.onLine) return { ok: false, reason: "offline" };
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/verifier_licence`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY
+      },
+      body: JSON.stringify({ p_code: code, p_app: APP_ID })
+    });
+    if (res.status === 404) return { ok: false, reason: "not-configured" };
+    if (!res.ok) return { ok: false, reason: "offline" };
+    const valid = await res.json();
+    return valid === true ? { ok: true } : { ok: false, reason: "invalid" };
+  } catch (e) {
+    return { ok: false, reason: "offline" };
+  }
 }
 
 /* true = compétence bloquée faute de licence (visible mais non jouable). */
@@ -641,23 +699,26 @@ function renderAccessGate() {
     <label class="field-label">${t("accessCodeTitle")}</label>
     <p class="tagline">${trialOver ? t("accessCodeTrialOver") : t("accessCodePrompt")}</p>
     <input id="accessCodeInput" type="text" autocapitalize="characters" maxlength="30"
-      placeholder="${t('accessCodePlaceholder')}" value="${draftAccessCode}"
+      placeholder="${t('accessCodePlaceholder')}" value="${escapeHtml(draftAccessCode)}"
       oninput="draftAccessCode=this.value" onkeydown="if(event.key==='Enter')submitAccessCode()" />
     <button class="cta" onclick="submitAccessCode()">${t("accessCodeSubmit")}</button>
     ${accessCodeStatus === "invalid" ? `<p class="access-error">${t("accessCodeInvalid")}</p>` : ""}
   </div>`;
 }
 
-function submitAccessCode() {
+async function submitAccessCode() {
   const code = (draftAccessCode || "").trim();
   if (!code) return;
-  if (ACCESS_CODES.includes(code.toUpperCase())) {
-    state.accessCode = code;
+  accessCodeStatus = "checking";
+  render();
+  const result = await verifyLicenseCode(code);
+  if (result.ok) {
+    state.accessCode = code.toUpperCase();
     accessCodeStatus = null;
     saveState();
     render();
   } else {
-    accessCodeStatus = "invalid";
+    accessCodeStatus = result.reason;
     render();
   }
 }
@@ -911,10 +972,10 @@ function renderClassJoin() {
     </div>
     <h1>👥 ${fr ? "Ma classe" : "My class"}</h1>
     ${state.cfpNom ? `<div class="cfp-banner">
-      ${state.cfpLogo ? `<img class="cfp-logo" src="${state.cfpLogo}" alt="" />` : ""}
+      ${safeImageUrl(state.cfpLogo) ? `<img class="cfp-logo" src="${escapeHtml(safeImageUrl(state.cfpLogo))}" alt="" />` : ""}
       <div class="cfp-text">
-        <div class="cfp-name">${state.cfpNom}</div>
-        ${state.programme ? `<div class="cfp-prog">${state.programme}</div>` : ""}
+        <div class="cfp-name">${escapeHtml(state.cfpNom)}</div>
+        ${state.programme ? `<div class="cfp-prog">${escapeHtml(state.programme)}</div>` : ""}
       </div>
     </div>` : ""}
     <p class="welcome-intro">${fr
@@ -924,7 +985,7 @@ function renderClassJoin() {
     <label class="field-label">${fr ? "Code de la classe" : "Class code"}</label>
     <input id="classCodeInput" type="text" maxlength="20" autocapitalize="characters"
       placeholder="${fr ? "ex. BONAV-5220" : "e.g. BONAV-5220"}"
-      value="${draftClassCode}" oninput="draftClassCode=this.value"
+      value="${escapeHtml(draftClassCode)}" oninput="draftClassCode=this.value"
       style="text-transform:uppercase;letter-spacing:1px;text-align:center" />
 
     <div class="share-toggle ${draftShared ? "on" : ""}" onclick="toggleDraftShare()">
@@ -1048,7 +1109,7 @@ function questNode(c) {
       <div class="quest-node-main" onclick="${mainClick}">
         <div class="quest-icon">${playable ? c.icon : "🔒"}</div>
         <div class="quest-body">
-          <div class="quest-num">${c.order}.${c.code ? " " + c.code : ""}</div>
+          <div class="quest-num">${c.order}.${c.code ? " " + c.code : ""}${c.annee ? `<span class="quest-year-badge quest-year-${c.annee}">${c.annee === 2 ? t("year2Label") : t("year1Label")}</span>` : ""}</div>
           <div class="quest-title">${title}${mastered ? " 🏆" : ""}</div>
           ${premiumLocked ? `<div class="quest-premium-note">${premiumLockText().badge}</div>` : (c.hours ? `<div class="quest-meta">${c.hours} ${t("hours")}</div>` : "")}
         </div>

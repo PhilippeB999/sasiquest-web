@@ -68,6 +68,7 @@ let state = loadState();
 // Totem provisoire de l'écran de profil : repris de l'état s'il existe, sinon tiré au sort.
 let draftTotem = (state.totem && state.totem.nounFr) ? state.totem : genTotem();
 let draftAccessCode = "";
+let draftPremiumCode = "";   // saisie du code dans la pop-up "Licence requise" (module verrouillé)
 let accessCodeStatus = null; // null | "checking" | "invalid" | "offline" | "not-configured"
 let currentQuest = null;      // compétence (objet COMPETENCIES[i]) en cours
 let currentTierLevel = null;  // 1, 2 ou 3 — palier de la compétence en cours
@@ -652,27 +653,31 @@ function premiumLockText() {
     fr: {
       badge: "🔒 Licence requise",
       title: "Contenu réservé aux centres licenciés",
-      body: `Les ${FREE_COMPETENCIES} premiers modules sont gratuits. Pour débloquer tout le programme, communiquez avec nous pour une licence Quest.`,
-      cta: "Nous écrire",
+      body: `Les ${FREE_COMPETENCIES} premiers modules sont gratuits. Tu as un code d'accès ? Entre-le ci-dessous pour débloquer tout le programme.`,
+      or: "ou",
+      cta: "Nous écrire pour une licence",
       close: "Fermer"
     },
     en: {
       badge: "🔒 License required",
       title: "Reserved for licensed training centers",
-      body: `The first ${FREE_COMPETENCIES} modules are free. To unlock the full program, contact us for a Quest license.`,
-      cta: "Contact us",
+      body: `The first ${FREE_COMPETENCIES} modules are free. Already have an access code? Enter it below to unlock the full program.`,
+      or: "or",
+      cta: "Contact us for a license",
       close: "Close"
     }
   };
   return T[state.lang] || T.fr;
 }
 
-/* Overlay non bloquant : montre l'appel à l'action sans quitter la carte.
-   Ajouté à <body> (hors #app) pour survivre au prochain render(). */
+/* Overlay non bloquant : montre le champ de code (+ solution de repli "nous
+   écrire") sans quitter la carte. Ajouté à <body> (hors #app) pour survivre
+   au prochain render(). */
 function showPremiumLock() {
   const existing = document.getElementById("premiumLockOverlay");
   if (existing) existing.remove();
   const L = premiumLockText();
+  draftPremiumCode = "";
   const el = document.createElement("div");
   el.id = "premiumLockOverlay";
   el.className = "premium-overlay";
@@ -681,11 +686,48 @@ function showPremiumLock() {
       <div class="premium-badge">${L.badge}</div>
       <h2>${L.title}</h2>
       <p>${L.body}</p>
-      <a class="cta" href="mailto:philippe.beaubien@gmail.com?subject=Licence%20Quest">${L.cta}</a>
+      <label class="field-label" style="text-align:center;">${t("accessCodeTitle")}</label>
+      <input id="premiumCodeInput" type="text" autocapitalize="characters" maxlength="30"
+        placeholder="${t('accessCodePlaceholder')}" value="" style="padding:20px 16px;border-radius:14px;border:2px solid #555;background:var(--dark-2);color:var(--text);font-size:18px;font-weight:700;letter-spacing:1.5px;text-align:center;text-transform:uppercase;width:100%;box-sizing:border-box;margin-top:6px;"
+        oninput="draftPremiumCode=this.value" onkeydown="if(event.key==='Enter')submitPremiumCode()" />
+      <button id="premiumCodeSubmitBtn" class="cta" onclick="submitPremiumCode()">${t("accessCodeSubmit")}</button>
+      <p id="premiumCodeError" class="access-error" style="display:none;"></p>
+      <p class="premium-or" style="font-size:12px;color:var(--muted);margin:14px 0 4px;text-transform:uppercase;letter-spacing:1px;">${L.or}</p>
+      <a class="secondary" href="mailto:philippe.beaubien@gmail.com?subject=Licence%20Quest">${L.cta}</a>
       <button class="secondary" onclick="document.getElementById('premiumLockOverlay').remove()">${L.close}</button>
     </div>`;
   el.addEventListener("click", (ev) => { if (ev.target === el) el.remove(); });
   document.body.appendChild(el);
+}
+
+/* Valide (auprès de Supabase) le code saisi dans la pop-up "Licence requise".
+   Succès : débloque tout le programme immédiatement, sans passer par l'écran
+   plein-page. */
+async function submitPremiumCode() {
+  const code = (draftPremiumCode || "").trim();
+  if (!code) return;
+  const btn = document.getElementById("premiumCodeSubmitBtn");
+  const err = document.getElementById("premiumCodeError");
+  if (err) err.style.display = "none";
+  if (btn) { btn.disabled = true; btn.textContent = t("accessCodeChecking"); }
+  const result = await verifyLicenseCode(code);
+  if (result.ok) {
+    state.accessCode = code.toUpperCase();
+    saveState();
+    const overlay = document.getElementById("premiumLockOverlay");
+    if (overlay) overlay.remove();
+    draftPremiumCode = "";
+    render();
+    return;
+  }
+  if (btn) { btn.disabled = false; btn.textContent = t("accessCodeSubmit"); }
+  if (err) {
+    const key = result.reason === "offline" ? "accessCodeOffline"
+      : result.reason === "not-configured" ? "accessCodeNotConfigured"
+      : "accessCodeInvalid";
+    err.textContent = t(key);
+    err.style.display = "block";
+  }
 }
 
 function renderAccessGate() {
@@ -1581,6 +1623,7 @@ window.goLeaderboard = goLeaderboard;
 window.resetProgress = resetProgress;
 window.submitAccessCode = submitAccessCode;
 window.showPremiumLock = showPremiumLock;
+window.submitPremiumCode = submitPremiumCode;
 window.completeWelcome = completeWelcome;
 window.regenTotem = regenTotem;
 window.goClassJoin = goClassJoin;
